@@ -75,7 +75,7 @@
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    containerWidth, containerHeight; // trigger recomputation on resize
+    (containerWidth, containerHeight); // trigger recomputation on resize
 
     const { contentWidth, contentHeight, offsetX, offsetY } = getContentMetrics(assetViewerManager.imgRef);
     const { currentZoom, currentPositionX, currentPositionY } = assetViewerManager.zoomState;
