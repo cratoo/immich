@@ -1,0 +1,95 @@
+name: Build Custom Server Image
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # täglich 06:00 UTC prüfen
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Get latest upstream release
+        id: release
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/immich-app/immich/releases/latest \
+            | jq -r '.tag_name')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Upstream version: $VERSION"
+
+      - name: Check if already built
+        id: check
+        run: |
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/v2/${{ github.repository_owner }}/immich-server/manifests/${{ steps.release.outputs.version }}")
+          if [ "$HTTP" = "200" ]; then
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "Image already exists, skipping build"
+          else
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "New version detected, will build"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: extended
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge upstream release tag
+        run: |
+          git remote add upstream https://github.com/immich-app/immich.git
+          git fetch upstream ${{ needs.check.outputs.version }} --no-tags
+          git merge FETCH_HEAD \
+            --no-edit \
+            -m "chore: merge upstream ${{ needs.check.outputs.version }}"
+
+      - name: Push merged branch
+        run: git push origin extended
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/immich-server:${{ needs.check.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/immich-server:latest
+          build-args: |
+            BUILD_ID=${{ github.run_id }}
+            BUILD_IMAGE=ghcr.io/${{ github.repository_owner }}/immich-server:${{ needs.check.outputs.version }}
+            BUILD_SOURCE_REF=extended
+            BUILD_SOURCE_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
