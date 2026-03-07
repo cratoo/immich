@@ -1,8 +1,8 @@
-name: Build Custom Server Image
+name: Build Extended Immich Server Image
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # täglich 06:00 UTC prüfen
+    - cron: '0 6 * * *'   # check daily 6:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -89,7 +89,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/immich-server:${{ needs.check.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/immich-server:latest
           build-args: |
             BUILD_ID=${{ github.run_id }}
             BUILD_IMAGE=ghcr.io/${{ github.repository_owner }}/immich-server:${{ needs.check.outputs.version }}
