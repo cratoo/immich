@@ -272,6 +272,14 @@
   };
 </script>
 
+<svelte:document
+  onkeydown={(e) => {
+    if (e.key === 'Escape') {
+      cancel();
+    }
+  }}
+/>
+
 <div
   id="face-editor-data"
   class="absolute start-0 top-0 z-5 h-full w-full overflow-hidden"
