@@ -35,7 +35,7 @@
     type PersonResponseDto,
     type StackResponseDto,
   } from '@immich/sdk';
-  import { ActionButton, CommandPaletteDefaultProvider, Tooltip, isModalOpen, type ActionItem } from '@immich/ui';
+  import { ActionButton, CommandPaletteDefaultProvider, Tooltip, type ActionItem } from '@immich/ui';
   import LoadingDots from '$lib/components/LoadingDots.svelte';
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import {
@@ -91,7 +91,7 @@
     icon: languageManager.rtl ? mdiArrowRight : mdiArrowLeft,
     $if: () => !!onClose,
     onAction: () => onClose?.(),
-    shortcuts: isModalOpen() || isFaceEditMode.value ? [] : [{ key: 'Escape' }],
+    shortcuts: isFaceEditMode.value ? [] : [{ key: 'Escape' }],
   });
 
   const Actions = $derived(getAssetActions($t, asset));
