@@ -248,15 +248,39 @@ export class LibraryService extends BaseService {
     }
 
     const assetImports: Insertable<AssetTable>[] = [];
+    const updatedAssetIds: string[] = [];
     await Promise.all(
-      job.paths.map((path) =>
-        this.processEntity(path, library.ownerId, job.libraryId)
-          .then((asset) => assetImports.push(asset))
-          .catch((error: any) => this.logger.error(`Error processing ${path} for library ${job.libraryId}: ${error}`)),
-      ),
+      job.paths.map(async (filePath) => {
+        try {
+          const assetPath = path.normalize(filePath);
+          const stat = await this.storageRepository.stat(assetPath);
+          const { base: fileName, dir: folderPath } = parse(assetPath);
+
+          const movedAsset = await this.assetRepository.findPossiblyMovedAsset(job.libraryId, fileName, stat.size);
+          if (movedAsset) {
+            await this.assetRepository.update({ id: movedAsset.id, originalPath: assetPath });
+            updatedAssetIds.push(movedAsset.id);
+            this.logger.debug(`Detected moved asset: ${movedAsset.originalPath} -> ${assetPath}`);
+            return;
+          }
+
+          const renamedAsset = await this.assetRepository.findPossiblyRenamedAsset(job.libraryId, folderPath, stat.size);
+          if (renamedAsset) {
+            await this.assetRepository.update({ id: renamedAsset.id, originalPath: assetPath });
+            updatedAssetIds.push(renamedAsset.id);
+            this.logger.debug(`Detected renamed asset: ${renamedAsset.originalPath} -> ${assetPath}`);
+            return;
+          }
+
+          const asset = await this.processEntity(assetPath, library.ownerId, job.libraryId, stat);
+          assetImports.push(asset);
+        } catch (error: any) {
+          this.logger.error(`Error processing ${filePath} for library ${job.libraryId}: ${error}`);
+        }
+      }),
     );
 
-    const assetIds: string[] = [];
+    const assetIds: string[] = [...updatedAssetIds];
 
     for (let i = 0; i < assetImports.length; i += 5000) {
       // Chunk the imports to avoid the postgres limit of max parameters at once
@@ -392,9 +416,9 @@ export class LibraryService extends BaseService {
     return JobStatus.Success;
   }
 
-  private async processEntity(filePath: string, ownerId: string, libraryId: string) {
+  private async processEntity(filePath: string, ownerId: string, libraryId: string, stat?: Stats) {
     const assetPath = path.normalize(filePath);
-    const stat = await this.storageRepository.stat(assetPath);
+    const fileStat = stat ?? (await this.storageRepository.stat(assetPath));
 
     return {
       ownerId,
@@ -402,9 +426,9 @@ export class LibraryService extends BaseService {
       checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
       originalPath: assetPath,
 
-      fileCreatedAt: stat.mtime,
-      fileModifiedAt: stat.mtime,
-      localDateTime: stat.mtime,
+      fileCreatedAt: fileStat.mtime,
+      fileModifiedAt: fileStat.mtime,
+      localDateTime: fileStat.mtime,
       // TODO: device asset id is deprecated, remove it
       deviceAssetId: `${basename(assetPath)}`.replaceAll(/\s+/g, ''),
       deviceId: 'Library Import',
