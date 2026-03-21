@@ -280,12 +280,12 @@ export class LibraryService extends BaseService {
       }),
     );
 
-    const assetIds: string[] = [...updatedAssetIds];
+    const newAssetIds: string[] = [];
 
     for (let i = 0; i < assetImports.length; i += 5000) {
       // Chunk the imports to avoid the postgres limit of max parameters at once
       const chunk = assetImports.slice(i, i + 5000);
-      await this.assetRepository.createAll(chunk).then((assets) => assetIds.push(...assets.map((asset) => asset.id)));
+      await this.assetRepository.createAll(chunk).then((assets) => newAssetIds.push(...assets.map((asset) => asset.id)));
     }
 
     const progressMessage =
@@ -293,9 +293,11 @@ export class LibraryService extends BaseService {
         ? `(${job.progressCounter} of ${job.totalAssets})`
         : `(${job.progressCounter} done so far)`;
 
-    this.logger.log(`Imported ${assetIds.length} ${progressMessage} file(s) into library ${job.libraryId}`);
+    this.logger.log(
+      `Imported ${newAssetIds.length + updatedAssetIds.length} ${progressMessage} file(s) into library ${job.libraryId} (${newAssetIds.length} new, ${updatedAssetIds.length} moved/renamed — skipping post-sync pipeline for moved/renamed)`,
+    );
 
-    await this.queuePostSyncJobs(assetIds);
+    await this.queuePostSyncJobs(newAssetIds);
 
     return JobStatus.Success;
   }
