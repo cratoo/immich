@@ -257,7 +257,7 @@ export class LibraryService extends BaseService {
           const { base: fileName, dir: folderPath } = parse(assetPath);
 
           const movedAsset = await this.assetRepository.findPossiblyMovedAsset(job.libraryId, fileName, stat.size);
-          if (movedAsset) {
+          if (movedAsset && !(await this.storageRepository.checkFileExists(movedAsset.originalPath))) {
             await this.assetRepository.update({ id: movedAsset.id, originalPath: assetPath, isOffline: false, deletedAt: null });
             updatedAssetIds.push(movedAsset.id);
             this.logger.log(`Detected moved asset: ${movedAsset.originalPath} -> ${assetPath}`);
@@ -265,7 +265,7 @@ export class LibraryService extends BaseService {
           }
 
           const renamedAsset = await this.assetRepository.findPossiblyRenamedAsset(job.libraryId, folderPath, stat.size);
-          if (renamedAsset) {
+          if (renamedAsset && !(await this.storageRepository.checkFileExists(renamedAsset.originalPath))) {
             await this.assetRepository.update({ id: renamedAsset.id, originalPath: assetPath, originalFileName: fileName, isOffline: false, deletedAt: null });
             updatedAssetIds.push(renamedAsset.id);
             this.logger.log(`Detected renamed asset: ${renamedAsset.originalPath} -> ${assetPath}`);
