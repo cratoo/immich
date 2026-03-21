@@ -705,12 +705,15 @@ export class LibraryService extends BaseService {
 
   @OnJob({ name: JobName.LibraryRemoveAsset, queue: QueueName.Library })
   async handleAssetRemoval(job: JobOf<JobName.LibraryRemoveAsset>): Promise<JobStatus> {
-    // This is only for handling file unlink events via the file watcher
-    this.logger.verbose(`Deleting asset(s) ${job.paths} from library ${job.libraryId}`);
+    // This is only for handling file unlink events via the file watcher.
+    // We mark the asset as offline instead of deleting it, so that move/rename detection
+    // in handleSyncFiles can still find it when the corresponding add event arrives.
+    this.logger.verbose(`Marking asset(s) ${job.paths} as offline in library ${job.libraryId}`);
     for (const assetPath of job.paths) {
       const asset = await this.assetRepository.getByLibraryIdAndOriginalPath(job.libraryId, assetPath);
       if (asset) {
-        await this.assetRepository.remove(asset);
+        await this.assetRepository.update({ id: asset.id, isOffline: true, deletedAt: new Date() });
+        this.logger.debug(`Marked asset as offline: ${assetPath}`);
       }
     }
 
