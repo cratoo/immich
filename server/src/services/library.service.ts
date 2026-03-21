@@ -486,14 +486,6 @@ export class LibraryService extends BaseService {
         },
       })),
     );
-    await this.jobRepository.queueAll(
-      libraries.map((library) => ({
-        name: JobName.LibrarySyncAssetsQueueAll,
-        data: {
-          id: library.id,
-        },
-      })),
-    );
 
     return JobStatus.Success;
   }
@@ -699,6 +691,10 @@ export class LibraryService extends BaseService {
     );
 
     await this.libraryRepository.update(job.id, { refreshedAt: new Date() });
+
+    // Queue asset sync after all LibrarySyncFiles jobs have been enqueued, so that
+    // move detection in handleSyncFiles completes before handleSyncAssets checks asset paths.
+    await this.jobRepository.queue({ name: JobName.LibrarySyncAssetsQueueAll, data: { id: job.id } });
 
     return JobStatus.Success;
   }
