@@ -472,6 +472,25 @@ export class MetadataService extends BaseService {
       _.isUndefined,
     );
 
+    const namedFaces = asset.faces?.filter((f) => f.person?.name && f.imageWidth > 0 && f.imageHeight > 0) ?? [];
+    if (namedFaces.length > 0) {
+      const { imageWidth, imageHeight } = namedFaces[0];
+      exif.RegionInfo = {
+        AppliedToDimensions: { W: imageWidth, H: imageHeight, Unit: 'pixel' },
+        RegionList: namedFaces.map((f) => ({
+          Area: {
+            X: (f.boundingBoxX1 + f.boundingBoxX2) / 2 / imageWidth,
+            Y: (f.boundingBoxY1 + f.boundingBoxY2) / 2 / imageHeight,
+            W: (f.boundingBoxX2 - f.boundingBoxX1) / imageWidth,
+            H: (f.boundingBoxY2 - f.boundingBoxY1) / imageHeight,
+            Unit: 'normalized',
+          },
+          Type: 'Face',
+          Name: f.person!.name,
+        })),
+      };
+    }
+
     if (Object.keys(exif).length === 0) {
       return JobStatus.Skipped;
     }

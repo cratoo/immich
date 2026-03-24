@@ -14,6 +14,7 @@ import {
   withExif,
   withExifInner,
   withFaces,
+  withFacesAndPeople,
   withFilePath,
   withFiles,
 } from 'src/utils/database';
@@ -41,6 +42,7 @@ export class AssetJobRepository {
       .where('asset.id', '=', asUuid(id))
       .select(['id', 'originalPath'])
       .select((eb) => withFiles(eb, AssetFileType.Sidecar))
+      .select((eb) => withFacesAndPeople(eb))
       .$call(withExifInner)
       .limit(1)
       .executeTakeFirst();

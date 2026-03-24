@@ -223,7 +223,8 @@ export class JobRepository {
           delay: item.data?.delay,
         };
       }
-      case JobName.StorageTemplateMigrationSingle: {
+      case JobName.StorageTemplateMigrationSingle:
+      case JobName.SidecarWrite: {
         return { jobId: item.data.id };
       }
       case JobName.PersonGenerateThumbnail: {

@@ -97,6 +97,7 @@ export class PersonService extends BaseService {
         }
 
         await this.personRepository.reassignFace(face.id, personId);
+        await this.jobRepository.queue({ name: JobName.SidecarWrite, data: { id: face.assetId } });
       }
 
       result.push(mapPerson(person));
@@ -121,6 +122,8 @@ export class PersonService extends BaseService {
     if (face.person && face.person.faceAssetId === face.id) {
       await this.createNewFeaturePhoto([face.person.id]);
     }
+
+    await this.jobRepository.queue({ name: JobName.SidecarWrite, data: { id: face.assetId } });
 
     return await this.findOrFail(personId).then(mapPerson);
   }
@@ -217,6 +220,14 @@ export class PersonService extends BaseService {
 
     if (assetId) {
       await this.jobRepository.queue({ name: JobName.PersonGenerateThumbnail, data: { id } });
+    }
+
+    if (name !== undefined) {
+      const jobs: { name: JobName.SidecarWrite; data: { id: string } }[] = [];
+      for await (const face of this.personRepository.getAllFaces({ personId: id })) {
+        jobs.push({ name: JobName.SidecarWrite, data: { id: face.assetId } });
+      }
+      await this.jobRepository.queueAll(jobs);
     }
 
     return mapPerson(person);
@@ -603,8 +614,17 @@ export class PersonService extends BaseService {
         const mergeData: UpdateFacesData = { oldPersonId: mergeId, newPersonId: id };
         this.logger.log(`Merging ${mergeName} into ${primaryName}`);
 
+        const affectedAssetIds: string[] = [];
+        for await (const face of this.personRepository.getAllFaces({ personId: mergeId })) {
+          affectedAssetIds.push(face.assetId);
+        }
+
         await this.personRepository.reassignFaces(mergeData);
         await this.removeAllPeople([mergePerson]);
+
+        await this.jobRepository.queueAll(
+          affectedAssetIds.map((assetId) => ({ name: JobName.SidecarWrite, data: { id: assetId } }) as const),
+        );
 
         this.logger.log(`Merged ${mergeName} into ${primaryName}`);
         results.push({ id: mergeId, success: true });
@@ -697,11 +717,14 @@ export class PersonService extends BaseService {
     if (!person.faceAssetId) {
       await this.createNewFeaturePhoto([person.id]);
     }
+    await this.jobRepository.queue({ name: JobName.SidecarWrite, data: { id: dto.assetId } });
   }
 
   async deleteFace(auth: AuthDto, id: string, dto: AssetFaceDeleteDto): Promise<void> {
     await this.requireAccess({ auth, permission: Permission.FaceDelete, ids: [id] });
 
-    return dto.force ? this.personRepository.deleteAssetFace(id) : this.personRepository.softDeleteAssetFaces(id);
+    const face = await this.personRepository.getFaceById(id);
+    await (dto.force ? this.personRepository.deleteAssetFace(id) : this.personRepository.softDeleteAssetFaces(id));
+    await this.jobRepository.queue({ name: JobName.SidecarWrite, data: { id: face.assetId } });
   }
 }
