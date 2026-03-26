@@ -248,20 +248,44 @@ export class LibraryService extends BaseService {
     }
 
     const assetImports: Insertable<AssetTable>[] = [];
+    const updatedAssetIds: string[] = [];
     await Promise.all(
-      job.paths.map((path) =>
-        this.processEntity(path, library.ownerId, job.libraryId)
-          .then((asset) => assetImports.push(asset))
-          .catch((error: any) => this.logger.error(`Error processing ${path} for library ${job.libraryId}: ${error}`)),
-      ),
+      job.paths.map(async (filePath) => {
+        try {
+          const assetPath = path.normalize(filePath);
+          const stat = await this.storageRepository.stat(assetPath);
+          const { base: fileName, dir: folderPath } = parse(assetPath);
+
+          const movedAsset = await this.assetRepository.findPossiblyMovedAsset(job.libraryId, fileName, stat.size);
+          if (movedAsset && !(await this.storageRepository.checkFileExists(movedAsset.originalPath))) {
+            await this.assetRepository.update({ id: movedAsset.id, originalPath: assetPath, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), isOffline: false, deletedAt: null });
+            updatedAssetIds.push(movedAsset.id);
+            this.logger.log(`Detected moved asset: ${movedAsset.originalPath} -> ${assetPath}`);
+            return;
+          }
+
+          const renamedAsset = await this.assetRepository.findPossiblyRenamedAsset(job.libraryId, folderPath, stat.size);
+          if (renamedAsset && !(await this.storageRepository.checkFileExists(renamedAsset.originalPath))) {
+            await this.assetRepository.update({ id: renamedAsset.id, originalPath: assetPath, originalFileName: fileName, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), isOffline: false, deletedAt: null });
+            updatedAssetIds.push(renamedAsset.id);
+            this.logger.log(`Detected renamed asset: ${renamedAsset.originalPath} -> ${assetPath}`);
+            return;
+          }
+
+          const asset = await this.processEntity(assetPath, library.ownerId, job.libraryId, stat);
+          assetImports.push(asset);
+        } catch (error: any) {
+          this.logger.error(`Error processing ${filePath} for library ${job.libraryId}: ${error}`);
+        }
+      }),
     );
 
-    const assetIds: string[] = [];
+    const newAssetIds: string[] = [];
 
     for (let i = 0; i < assetImports.length; i += 5000) {
       // Chunk the imports to avoid the postgres limit of max parameters at once
       const chunk = assetImports.slice(i, i + 5000);
-      await this.assetRepository.createAll(chunk).then((assets) => assetIds.push(...assets.map((asset) => asset.id)));
+      await this.assetRepository.createAll(chunk).then((assets) => newAssetIds.push(...assets.map((asset) => asset.id)));
     }
 
     const progressMessage =
@@ -269,9 +293,11 @@ export class LibraryService extends BaseService {
         ? `(${job.progressCounter} of ${job.totalAssets})`
         : `(${job.progressCounter} done so far)`;
 
-    this.logger.log(`Imported ${assetIds.length} ${progressMessage} file(s) into library ${job.libraryId}`);
+    this.logger.log(
+      `Imported ${newAssetIds.length + updatedAssetIds.length} ${progressMessage} file(s) into library ${job.libraryId} (${newAssetIds.length} new, ${updatedAssetIds.length} moved/renamed — skipping post-sync pipeline for moved/renamed)`,
+    );
 
-    await this.queuePostSyncJobs(assetIds);
+    await this.queuePostSyncJobs(newAssetIds);
 
     return JobStatus.Success;
   }
@@ -392,9 +418,9 @@ export class LibraryService extends BaseService {
     return JobStatus.Success;
   }
 
-  private async processEntity(filePath: string, ownerId: string, libraryId: string) {
+  private async processEntity(filePath: string, ownerId: string, libraryId: string, stat?: Stats) {
     const assetPath = path.normalize(filePath);
-    const stat = await this.storageRepository.stat(assetPath);
+    const fileStat = stat ?? (await this.storageRepository.stat(assetPath));
 
     return {
       ownerId,
@@ -402,9 +428,9 @@ export class LibraryService extends BaseService {
       checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
       originalPath: assetPath,
 
-      fileCreatedAt: stat.mtime,
-      fileModifiedAt: stat.mtime,
-      localDateTime: stat.mtime,
+      fileCreatedAt: fileStat.mtime,
+      fileModifiedAt: fileStat.mtime,
+      localDateTime: fileStat.mtime,
       // TODO: device asset id is deprecated, remove it
       deviceAssetId: `${basename(assetPath)}`.replaceAll(/\s+/g, ''),
       deviceId: 'Library Import',
@@ -457,14 +483,6 @@ export class LibraryService extends BaseService {
     await this.jobRepository.queueAll(
       libraries.map((library) => ({
         name: JobName.LibrarySyncFilesQueueAll,
-        data: {
-          id: library.id,
-        },
-      })),
-    );
-    await this.jobRepository.queueAll(
-      libraries.map((library) => ({
-        name: JobName.LibrarySyncAssetsQueueAll,
         data: {
           id: library.id,
         },
@@ -676,17 +694,24 @@ export class LibraryService extends BaseService {
 
     await this.libraryRepository.update(job.id, { refreshedAt: new Date() });
 
+    // Queue asset sync after all LibrarySyncFiles jobs have been enqueued, so that
+    // move detection in handleSyncFiles completes before handleSyncAssets checks asset paths.
+    await this.jobRepository.queue({ name: JobName.LibrarySyncAssetsQueueAll, data: { id: job.id } });
+
     return JobStatus.Success;
   }
 
   @OnJob({ name: JobName.LibraryRemoveAsset, queue: QueueName.Library })
   async handleAssetRemoval(job: JobOf<JobName.LibraryRemoveAsset>): Promise<JobStatus> {
-    // This is only for handling file unlink events via the file watcher
-    this.logger.verbose(`Deleting asset(s) ${job.paths} from library ${job.libraryId}`);
+    // This is only for handling file unlink events via the file watcher.
+    // We mark the asset as offline instead of deleting it, so that move/rename detection
+    // in handleSyncFiles can still find it when the corresponding add event arrives.
+    this.logger.verbose(`Marking asset(s) ${job.paths} as offline in library ${job.libraryId}`);
     for (const assetPath of job.paths) {
       const asset = await this.assetRepository.getByLibraryIdAndOriginalPath(job.libraryId, assetPath);
       if (asset) {
-        await this.assetRepository.remove(asset);
+        await this.assetRepository.update({ id: asset.id, isOffline: true, deletedAt: new Date() });
+        this.logger.debug(`Marked asset as offline: ${assetPath}`);
       }
     }
 

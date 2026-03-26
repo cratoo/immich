@@ -1107,6 +1107,53 @@ export class AssetRepository {
     return count;
   }
 
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, DummyValue.NUMBER] })
+  async findPossiblyMovedAsset(
+    libraryId: string,
+    fileName: string,
+    fileSize: number,
+  ): Promise<{ id: string; originalPath: string } | undefined> {
+    return this.db
+      .selectFrom('asset')
+      .leftJoin('asset_exif', 'asset.id', 'asset_exif.assetId')
+      .select(['asset.id', 'asset.originalPath'])
+      .where('asset.libraryId', '=', asUuid(libraryId))
+      .where('asset.isExternal', '=', true)
+      .where('asset.originalFileName', '=', fileName)
+      .where((eb) =>
+        eb.or([
+          eb('asset_exif.fileSizeInByte', '=', fileSize),
+          eb('asset_exif.fileSizeInByte', 'is', null),
+        ]),
+      )
+      .limit(1)
+      .executeTakeFirst();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, DummyValue.NUMBER] })
+  async findPossiblyRenamedAsset(
+    libraryId: string,
+    folderPath: string,
+    fileSize: number,
+  ): Promise<{ id: string; originalPath: string } | undefined> {
+    return this.db
+      .selectFrom('asset')
+      .leftJoin('asset_exif', 'asset.id', 'asset_exif.assetId')
+      .select(['asset.id', 'asset.originalPath'])
+      .where('asset.libraryId', '=', asUuid(libraryId))
+      .where('asset.isExternal', '=', true)
+      .where('asset.originalPath', 'like', `${folderPath}/%`)
+      .where('asset.originalPath', 'not like', `${folderPath}/%/%`)
+      .where((eb) =>
+        eb.or([
+          eb('asset_exif.fileSizeInByte', '=', fileSize),
+          eb('asset_exif.fileSizeInByte', 'is', null),
+        ]),
+      )
+      .limit(1)
+      .executeTakeFirst();
+  }
+
   private buildGetForOriginal(ids: string[], isEdited: boolean) {
     return this.db
       .selectFrom('asset')
