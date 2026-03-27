@@ -56,7 +56,6 @@ jobs:
     permissions:
       contents: write
       packages: write
-      workflows: write
 
     steps:
       - name: Checkout fork
@@ -64,7 +63,7 @@ jobs:
         with:
           ref: extended
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT }}
 
       - name: Configure git
         run: |
