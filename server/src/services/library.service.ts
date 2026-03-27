@@ -258,7 +258,7 @@ export class LibraryService extends BaseService {
 
           const movedAsset = await this.assetRepository.findPossiblyMovedAsset(job.libraryId, fileName, stat.size);
           if (movedAsset && !(await this.storageRepository.checkFileExists(movedAsset.originalPath))) {
-            await this.assetRepository.update({ id: movedAsset.id, originalPath: assetPath, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), isOffline: false, deletedAt: null });
+            await this.assetRepository.update({ id: movedAsset.id, originalPath: assetPath, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), fileModifiedAt: stat.mtime, isOffline: false, deletedAt: null });
             updatedAssetIds.push(movedAsset.id);
             this.logger.log(`Detected moved asset: ${movedAsset.originalPath} -> ${assetPath}`);
             return;
@@ -266,7 +266,7 @@ export class LibraryService extends BaseService {
 
           const renamedAsset = await this.assetRepository.findPossiblyRenamedAsset(job.libraryId, folderPath, stat.size);
           if (renamedAsset && !(await this.storageRepository.checkFileExists(renamedAsset.originalPath))) {
-            await this.assetRepository.update({ id: renamedAsset.id, originalPath: assetPath, originalFileName: fileName, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), isOffline: false, deletedAt: null });
+            await this.assetRepository.update({ id: renamedAsset.id, originalPath: assetPath, originalFileName: fileName, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), fileModifiedAt: stat.mtime, isOffline: false, deletedAt: null });
             updatedAssetIds.push(renamedAsset.id);
             this.logger.log(`Detected renamed asset: ${renamedAsset.originalPath} -> ${assetPath}`);
             return;
@@ -465,7 +465,6 @@ export class LibraryService extends BaseService {
       },
     });
 
-    await this.jobRepository.queue({ name: JobName.LibrarySyncAssetsQueueAll, data: { id } });
   }
 
   async queueScanAll() {
