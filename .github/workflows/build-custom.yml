@@ -2,7 +2,12 @@ name: Build Extended Immich Server Image
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # check daily 6:00 UTC
+    - cron: '0 6 * * *'   # fallback: check daily 6:00 UTC
+  image_version:
+    names:
+      - "ghcr.io/immich-app/immich-server"
+    versions:
+      - "v*"
   workflow_dispatch:
     inputs:
       force:
