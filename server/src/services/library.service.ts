@@ -17,7 +17,17 @@ import {
   ValidateLibraryImportPathResponseDto,
   ValidateLibraryResponseDto,
 } from 'src/dtos/library.dto';
-import { AssetStatus, AssetType, CronJob, DatabaseLock, ImmichWorker, JobName, JobStatus, QueueName } from 'src/enum';
+import {
+  AssetStatus,
+  AssetType,
+  ChecksumAlgorithm,
+  CronJob,
+  DatabaseLock,
+  ImmichWorker,
+  JobName,
+  JobStatus,
+  QueueName,
+} from 'src/enum';
 import { ArgOf } from 'src/repositories/event.repository';
 import { AssetSyncResult } from 'src/repositories/library.repository';
 import { AssetTable } from 'src/schema/tables/asset.table';
@@ -280,13 +290,7 @@ export class LibraryService extends BaseService {
       }),
     );
 
-    const newAssetIds: string[] = [];
-
-    for (let i = 0; i < assetImports.length; i += 5000) {
-      // Chunk the imports to avoid the postgres limit of max parameters at once
-      const chunk = assetImports.slice(i, i + 5000);
-      await this.assetRepository.createAll(chunk).then((assets) => newAssetIds.push(...assets.map((asset) => asset.id)));
-    }
+    const assetIds = await this.assetRepository.createAll(assetImports);
 
     const progressMessage =
       job.progressCounter && job.totalAssets
@@ -294,10 +298,10 @@ export class LibraryService extends BaseService {
         : `(${job.progressCounter} done so far)`;
 
     this.logger.log(
-      `Imported ${newAssetIds.length + updatedAssetIds.length} ${progressMessage} file(s) into library ${job.libraryId} (${newAssetIds.length} new, ${updatedAssetIds.length} moved/renamed — skipping post-sync pipeline for moved/renamed)`,
+      `Imported ${assetIds.length + updatedAssetIds.length} ${progressMessage} file(s) into library ${job.libraryId} (${assetIds.length} new, ${updatedAssetIds.length} moved/renamed — skipping post-sync pipeline for moved/renamed)`,
     );
 
-    await this.queuePostSyncJobs(newAssetIds);
+    await this.queuePostSyncJobs(assetIds);
 
     return JobStatus.Success;
   }
@@ -426,6 +430,7 @@ export class LibraryService extends BaseService {
       ownerId,
       libraryId,
       checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
+      checksumAlgorithm: ChecksumAlgorithm.sha1Path,
       originalPath: assetPath,
 
       fileCreatedAt: fileStat.mtime,
