@@ -1121,6 +1121,7 @@ export class AssetRepository {
       .select(['asset.id', 'asset.originalPath'])
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
+      .where('asset.isOffline', '=', true)
       .where('asset.originalFileName', '=', fileName)
       .where((eb) =>
         eb.or([
@@ -1128,6 +1129,7 @@ export class AssetRepository {
           eb('asset_exif.fileSizeInByte', 'is', null),
         ]),
       )
+      .orderBy('asset.fileModifiedAt', 'desc')
       .limit(1)
       .executeTakeFirst();
   }
@@ -1144,6 +1146,7 @@ export class AssetRepository {
       .select(['asset.id', 'asset.originalPath'])
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
+      .where('asset.isOffline', '=', true)
       .where('asset.originalPath', 'like', `${folderPath}/%`)
       .where('asset.originalPath', 'not like', `${folderPath}/%/%`)
       .where((eb) =>
@@ -1152,6 +1155,7 @@ export class AssetRepository {
           eb('asset_exif.fileSizeInByte', 'is', null),
         ]),
       )
+      .orderBy('asset.fileModifiedAt', 'desc')
       .limit(1)
       .executeTakeFirst();
   }
