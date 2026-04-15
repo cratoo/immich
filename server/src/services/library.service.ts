@@ -270,7 +270,7 @@ export class LibraryService extends BaseService {
       ),
     );
 
-    const assetIds = await this.assetRepository.createAll(assetImports);
+    const assetIds = assetImports.length > 0 ? await this.assetRepository.createAll(assetImports) : [];
 
     const progressMessage =
       job.progressCounter && job.totalAssets
