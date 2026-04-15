@@ -1121,7 +1121,7 @@ export class AssetRepository {
       .select(['asset.id', 'asset.originalPath'])
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
-      .where('asset.isOffline', '=', true)
+      .where('asset.status', '=', AssetStatus.Active)
       .where('asset.originalFileName', '=', fileName)
       .where((eb) =>
         eb.or([
@@ -1140,15 +1140,16 @@ export class AssetRepository {
     folderPath: string,
     fileSize: number,
   ): Promise<{ id: string; originalPath: string } | undefined> {
+    const escapedPath = folderPath.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
     return this.db
       .selectFrom('asset')
       .leftJoin('asset_exif', 'asset.id', 'asset_exif.assetId')
       .select(['asset.id', 'asset.originalPath'])
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
-      .where('asset.isOffline', '=', true)
-      .where('asset.originalPath', 'like', `${folderPath}/%`)
-      .where('asset.originalPath', 'not like', `${folderPath}/%/%`)
+      .where('asset.status', '=', AssetStatus.Active)
+      .where(sql`asset."originalPath" LIKE ${escapedPath + '/%'} ESCAPE '\\'`)
+      .where(sql`asset."originalPath" NOT LIKE ${escapedPath + '/%/%'} ESCAPE '\\'`)
       .where((eb) =>
         eb.or([
           eb('asset_exif.fileSizeInByte', '=', fileSize),
