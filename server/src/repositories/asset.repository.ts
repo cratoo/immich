@@ -1148,8 +1148,8 @@ export class AssetRepository {
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
       .where('asset.status', '=', AssetStatus.Active)
-      .where(sql`asset."originalPath" LIKE ${escapedPath + '/%'} ESCAPE '\\'`)
-      .where(sql`asset."originalPath" NOT LIKE ${escapedPath + '/%/%'} ESCAPE '\\'`)
+      .where(sql<boolean>`asset."originalPath" LIKE ${escapedPath + '/%'} ESCAPE '\\'`)
+      .where(sql<boolean>`asset."originalPath" NOT LIKE ${escapedPath + '/%/%'} ESCAPE '\\'`)
       .where((eb) =>
         eb.or([
           eb('asset_exif.fileSizeInByte', '=', fileSize),
