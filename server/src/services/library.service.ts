@@ -3,6 +3,7 @@ import { Insertable } from 'kysely';
 import { R_OK } from 'node:constants';
 import { Stats } from 'node:fs';
 import path, { basename, isAbsolute, parse } from 'node:path';
+import { PostgresError } from 'postgres';
 import picomatch from 'picomatch';
 import { JOBS_LIBRARY_PAGINATION_SIZE } from 'src/constants';
 import { StorageCore } from 'src/cores/storage.core';
@@ -257,40 +258,19 @@ export class LibraryService extends BaseService {
       return JobStatus.Failed;
     }
 
+    const migratedPaths = await this.detectMovedOrRenamedAssets(job.libraryId, job.paths);
+    const pathsToImport = migratedPaths.size === 0 ? job.paths : job.paths.filter((p) => !migratedPaths.has(p));
+
     const assetImports: Insertable<AssetTable>[] = [];
-    const updatedAssetIds: string[] = [];
     await Promise.all(
-      job.paths.map(async (filePath) => {
-        try {
-          const assetPath = path.normalize(filePath);
-          const stat = await this.storageRepository.stat(assetPath);
-          const { base: fileName, dir: folderPath } = parse(assetPath);
-
-          const movedAsset = await this.assetRepository.findPossiblyMovedAsset(job.libraryId, fileName, stat.size);
-          if (movedAsset && !(await this.storageRepository.checkFileExists(movedAsset.originalPath))) {
-            await this.assetRepository.update({ id: movedAsset.id, originalPath: assetPath, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), fileModifiedAt: stat.mtime, isOffline: false, deletedAt: null });
-            updatedAssetIds.push(movedAsset.id);
-            this.logger.log(`Detected moved asset: ${movedAsset.originalPath} -> ${assetPath}`);
-            return;
-          }
-
-          const renamedAsset = await this.assetRepository.findPossiblyRenamedAsset(job.libraryId, folderPath, stat.size);
-          if (renamedAsset && !(await this.storageRepository.checkFileExists(renamedAsset.originalPath))) {
-            await this.assetRepository.update({ id: renamedAsset.id, originalPath: assetPath, originalFileName: fileName, checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`), fileModifiedAt: stat.mtime, isOffline: false, deletedAt: null });
-            updatedAssetIds.push(renamedAsset.id);
-            this.logger.log(`Detected renamed asset: ${renamedAsset.originalPath} -> ${assetPath}`);
-            return;
-          }
-
-          const asset = await this.processEntity(assetPath, library.ownerId, job.libraryId, stat);
-          assetImports.push(asset);
-        } catch (error: any) {
-          this.logger.error(`Error processing ${filePath} for library ${job.libraryId}: ${error}`);
-        }
-      }),
+      pathsToImport.map((path) =>
+        this.processEntity(path, library.ownerId, job.libraryId)
+          .then((asset) => assetImports.push(asset))
+          .catch((error: any) => this.logger.error(`Error processing ${path} for library ${job.libraryId}: ${error}`)),
+      ),
     );
 
-    const assetIds = await this.assetRepository.createAll(assetImports);
+    const assetIds = assetImports.length > 0 ? await this.assetRepository.createAll(assetImports) : [];
 
     const progressMessage =
       job.progressCounter && job.totalAssets
@@ -298,7 +278,7 @@ export class LibraryService extends BaseService {
         : `(${job.progressCounter} done so far)`;
 
     this.logger.log(
-      `Imported ${assetIds.length + updatedAssetIds.length} ${progressMessage} file(s) into library ${job.libraryId} (${assetIds.length} new, ${updatedAssetIds.length} moved/renamed — skipping post-sync pipeline for moved/renamed)`,
+      `Imported ${assetIds.length} new, ${migratedPaths.size} migrated ${progressMessage} file(s) into library ${job.libraryId}`,
     );
 
     await this.queuePostSyncJobs(assetIds);
@@ -422,9 +402,71 @@ export class LibraryService extends BaseService {
     return JobStatus.Success;
   }
 
-  private async processEntity(filePath: string, ownerId: string, libraryId: string, stat?: Stats) {
+  private async detectMovedOrRenamedAssets(libraryId: string, paths: string[]): Promise<Set<string>> {
+    const migrated = new Set<string>();
+
+    for (const filePath of paths) {
+      let assetPath: string;
+      let stat: Stats;
+      let fileName: string;
+      let folderDir: string;
+
+      try {
+        assetPath = path.normalize(filePath);
+        stat = await this.storageRepository.stat(assetPath);
+        ({ base: fileName, dir: folderDir } = parse(assetPath));
+      } catch (error: any) {
+        this.logger.verbose(`Migration check failed for ${filePath} in library ${libraryId}: ${error}`);
+        continue;
+      }
+
+      const moved = await this.assetRepository.findPossiblyMovedAsset(libraryId, fileName, stat.size);
+      if (moved && !(await this.storageRepository.checkFileExists(moved.originalPath))) {
+        try {
+          await this.assetRepository.update({
+            id: moved.id,
+            originalPath: assetPath,
+            checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
+            fileModifiedAt: stat.mtime,
+            isOffline: false,
+            deletedAt: null,
+          });
+          migrated.add(filePath);
+          this.logger.debug(`Detected moved asset: ${moved.originalPath} -> ${assetPath}`);
+          continue;
+        } catch (error) {
+          if ((error as PostgresError)?.code !== '23505') throw error;
+          // Concurrent scan job already migrated onto this path; fall through to rename detection.
+        }
+      }
+
+      const renamed = await this.assetRepository.findPossiblyRenamedAsset(libraryId, folderDir, stat.size);
+      if (renamed && !(await this.storageRepository.checkFileExists(renamed.originalPath))) {
+        try {
+          await this.assetRepository.update({
+            id: renamed.id,
+            originalPath: assetPath,
+            originalFileName: fileName,
+            checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
+            fileModifiedAt: stat.mtime,
+            isOffline: false,
+            deletedAt: null,
+          });
+          migrated.add(filePath);
+          this.logger.debug(`Detected renamed asset: ${renamed.originalPath} -> ${assetPath}`);
+        } catch (error) {
+          if ((error as PostgresError)?.code !== '23505') throw error;
+          // Concurrent migration collided; fall through to normal import.
+        }
+      }
+    }
+
+    return migrated;
+  }
+
+  private async processEntity(filePath: string, ownerId: string, libraryId: string) {
     const assetPath = path.normalize(filePath);
-    const fileStat = stat ?? (await this.storageRepository.stat(assetPath));
+    const stat = await this.storageRepository.stat(assetPath);
 
     return {
       ownerId,
@@ -433,9 +475,9 @@ export class LibraryService extends BaseService {
       checksumAlgorithm: ChecksumAlgorithm.sha1Path,
       originalPath: assetPath,
 
-      fileCreatedAt: fileStat.mtime,
-      fileModifiedAt: fileStat.mtime,
-      localDateTime: fileStat.mtime,
+      fileCreatedAt: stat.mtime,
+      fileModifiedAt: stat.mtime,
+      localDateTime: stat.mtime,
       // TODO: device asset id is deprecated, remove it
       deviceAssetId: `${basename(assetPath)}`.replaceAll(/\s+/g, ''),
       deviceId: 'Library Import',
@@ -560,13 +602,16 @@ export class LibraryService extends BaseService {
       }
     }
 
+    const assetPathById = new Map(assets.map((a) => [a.id, a.originalPath]));
+    const toPairs = (ids: string[]) => ids.map((id) => ({ id, originalPath: assetPathById.get(id)! }));
+
     const promises = [];
     if (assetIdsToOffline.length > 0) {
-      promises.push(this.assetRepository.updateAll(assetIdsToOffline, { isOffline: true, deletedAt: new Date() }));
+      promises.push(this.assetRepository.updateAllIfPathUnchanged(toPairs(assetIdsToOffline), { isOffline: true, deletedAt: new Date() }));
     }
 
     if (trashedAssetIdsToOffline.length > 0) {
-      promises.push(this.assetRepository.updateAll(trashedAssetIdsToOffline, { isOffline: true }));
+      promises.push(this.assetRepository.updateAllIfPathUnchanged(toPairs(trashedAssetIdsToOffline), { isOffline: true }));
     }
 
     if (assetIdsToOnline.length > 0) {
@@ -583,10 +628,11 @@ export class LibraryService extends BaseService {
 
     await Promise.all(promises);
 
-    const remainingCount = assets.length - assetIdsToOffline.length - assetIdsToUpdate.length - assetIdsToOnline.length;
+    const offlinedCount = assetIdsToOffline.length + trashedAssetIdsToOffline.length;
+    const remainingCount = assets.length - offlinedCount - assetIdsToUpdate.length - assetIdsToOnline.length;
     const cumulativePercentage = ((100 * job.progressCounter) / job.totalAssets).toFixed(1);
     this.logger.log(
-      `Checked existing asset(s): ${assetIdsToOffline.length + trashedAssetIdsToOffline.length} offlined, ${assetIdsToOnline.length + trashedAssetIdsToOnline.length} onlined, ${assetIdsToUpdate.length} updated, ${remainingCount} unchanged of current batch of ${assets.length} (Total progress: ${job.progressCounter} of ${job.totalAssets}, ${cumulativePercentage} %) in library ${job.libraryId}.`,
+      `Checked existing asset(s): ${offlinedCount} offlined, ${assetIdsToOnline.length + trashedAssetIdsToOnline.length} onlined, ${assetIdsToUpdate.length} updated, ${remainingCount} unchanged of current batch of ${assets.length} (Total progress: ${job.progressCounter} of ${job.totalAssets}, ${cumulativePercentage} %) in library ${job.libraryId}.`,
     );
 
     return JobStatus.Success;

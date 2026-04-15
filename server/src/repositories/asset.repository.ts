@@ -590,6 +590,24 @@ export class AssetRepository {
     await this.db.updateTable('asset').set(options).where('id', '=', anyUuid(ids)).execute();
   }
 
+  @GenerateSql({ params: [[{ id: DummyValue.UUID, originalPath: DummyValue.STRING }], { isOffline: true }] })
+  @Chunked({ chunkSize: 1000 })
+  async updateAllIfPathUnchanged(
+    pairs: Array<{ id: string; originalPath: string }>,
+    options: Updateable<AssetTable>,
+  ): Promise<void> {
+    if (pairs.length === 0) {
+      return;
+    }
+    await this.db
+      .updateTable('asset')
+      .set(options)
+      .where((eb) =>
+        eb.or(pairs.map(({ id, originalPath }) => eb.and([eb('id', '=', asUuid(id)), eb('originalPath', '=', originalPath)]))),
+      )
+      .execute();
+  }
+
   async updateByLibraryId(libraryId: string, options: Updateable<AssetTable>): Promise<void> {
     await this.db.updateTable('asset').set(options).where('libraryId', '=', asUuid(libraryId)).execute();
   }
@@ -1121,7 +1139,7 @@ export class AssetRepository {
       .select(['asset.id', 'asset.originalPath'])
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
-      .where('asset.isOffline', '=', true)
+      .where('asset.status', '=', AssetStatus.Active)
       .where('asset.originalFileName', '=', fileName)
       .where((eb) =>
         eb.or([
@@ -1140,15 +1158,16 @@ export class AssetRepository {
     folderPath: string,
     fileSize: number,
   ): Promise<{ id: string; originalPath: string } | undefined> {
+    const escapedPath = folderPath.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
     return this.db
       .selectFrom('asset')
       .leftJoin('asset_exif', 'asset.id', 'asset_exif.assetId')
       .select(['asset.id', 'asset.originalPath'])
       .where('asset.libraryId', '=', asUuid(libraryId))
       .where('asset.isExternal', '=', true)
-      .where('asset.isOffline', '=', true)
-      .where('asset.originalPath', 'like', `${folderPath}/%`)
-      .where('asset.originalPath', 'not like', `${folderPath}/%/%`)
+      .where('asset.status', '=', AssetStatus.Active)
+      .where(sql<boolean>`asset."originalPath" LIKE ${escapedPath + '/%'} ESCAPE '\\'`)
+      .where(sql<boolean>`asset."originalPath" NOT LIKE ${escapedPath + '/%/%'} ESCAPE '\\'`)
       .where((eb) =>
         eb.or([
           eb('asset_exif.fileSizeInByte', '=', fileSize),
