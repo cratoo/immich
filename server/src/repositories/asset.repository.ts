@@ -590,6 +590,24 @@ export class AssetRepository {
     await this.db.updateTable('asset').set(options).where('id', '=', anyUuid(ids)).execute();
   }
 
+  @GenerateSql({ params: [[{ id: DummyValue.UUID, originalPath: DummyValue.STRING }], { isOffline: true }] })
+  @Chunked({ chunkSize: 1000 })
+  async updateAllIfPathUnchanged(
+    pairs: Array<{ id: string; originalPath: string }>,
+    options: Updateable<AssetTable>,
+  ): Promise<void> {
+    if (pairs.length === 0) {
+      return;
+    }
+    await this.db
+      .updateTable('asset')
+      .set(options)
+      .where((eb) =>
+        eb.or(pairs.map(({ id, originalPath }) => eb.and([eb('id', '=', asUuid(id)), eb('originalPath', '=', originalPath)]))),
+      )
+      .execute();
+  }
+
   async updateByLibraryId(libraryId: string, options: Updateable<AssetTable>): Promise<void> {
     await this.db.updateTable('asset').set(options).where('libraryId', '=', asUuid(libraryId)).execute();
   }

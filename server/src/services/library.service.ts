@@ -602,13 +602,16 @@ export class LibraryService extends BaseService {
       }
     }
 
+    const assetPathById = new Map(assets.map((a) => [a.id, a.originalPath]));
+    const toPairs = (ids: string[]) => ids.map((id) => ({ id, originalPath: assetPathById.get(id)! }));
+
     const promises = [];
     if (assetIdsToOffline.length > 0) {
-      promises.push(this.assetRepository.updateAll(assetIdsToOffline, { isOffline: true, deletedAt: new Date() }));
+      promises.push(this.assetRepository.updateAllIfPathUnchanged(toPairs(assetIdsToOffline), { isOffline: true, deletedAt: new Date() }));
     }
 
     if (trashedAssetIdsToOffline.length > 0) {
-      promises.push(this.assetRepository.updateAll(trashedAssetIdsToOffline, { isOffline: true }));
+      promises.push(this.assetRepository.updateAllIfPathUnchanged(toPairs(trashedAssetIdsToOffline), { isOffline: true }));
     }
 
     if (assetIdsToOnline.length > 0) {
@@ -625,10 +628,11 @@ export class LibraryService extends BaseService {
 
     await Promise.all(promises);
 
-    const remainingCount = assets.length - assetIdsToOffline.length - assetIdsToUpdate.length - assetIdsToOnline.length;
+    const offlinedCount = assetIdsToOffline.length + trashedAssetIdsToOffline.length;
+    const remainingCount = assets.length - offlinedCount - assetIdsToUpdate.length - assetIdsToOnline.length;
     const cumulativePercentage = ((100 * job.progressCounter) / job.totalAssets).toFixed(1);
     this.logger.log(
-      `Checked existing asset(s): ${assetIdsToOffline.length + trashedAssetIdsToOffline.length} offlined, ${assetIdsToOnline.length + trashedAssetIdsToOnline.length} onlined, ${assetIdsToUpdate.length} updated, ${remainingCount} unchanged of current batch of ${assets.length} (Total progress: ${job.progressCounter} of ${job.totalAssets}, ${cumulativePercentage} %) in library ${job.libraryId}.`,
+      `Checked existing asset(s): ${offlinedCount} offlined, ${assetIdsToOnline.length + trashedAssetIdsToOnline.length} onlined, ${assetIdsToUpdate.length} updated, ${remainingCount} unchanged of current batch of ${assets.length} (Total progress: ${job.progressCounter} of ${job.totalAssets}, ${cumulativePercentage} %) in library ${job.libraryId}.`,
     );
 
     return JobStatus.Success;
