@@ -446,7 +446,7 @@ export class MetadataService extends BaseService {
     const { sidecarFile } = getAssetFiles(asset.files);
     const sidecarPath = sidecarFile?.path || `${asset.originalPath}.xmp`;
 
-    const { description, dateTimeOriginal, latitude, longitude, rating, tags, timeZone } = _.pick(
+    const { description, dateTimeOriginal, latitude, longitude, rating, tags, timeZone, faces } = _.pick(
       {
         description: asset.exifInfo.description,
         dateTimeOriginal: asset.exifInfo.dateTimeOriginal,
@@ -455,6 +455,7 @@ export class MetadataService extends BaseService {
         rating: asset.exifInfo.rating ?? 0,
         tags: asset.exifInfo.tags,
         timeZone: asset.exifInfo.timeZone,
+        faces: asset.faces,
       },
       lockedProperties,
     );
@@ -472,7 +473,7 @@ export class MetadataService extends BaseService {
       _.isUndefined,
     );
 
-    const namedFaces = asset.faces?.filter((f) => f.person?.name && f.imageWidth > 0 && f.imageHeight > 0) ?? [];
+    const namedFaces = (faces ?? []).filter((f) => f.person?.name && f.imageWidth > 0 && f.imageHeight > 0);
     if (namedFaces.length > 0) {
       const { imageWidth, imageHeight } = namedFaces[0];
       exif.RegionInfo = {
