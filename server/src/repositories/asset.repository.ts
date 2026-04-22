@@ -271,6 +271,21 @@ export class AssetRepository {
       .execute();
   }
 
+  @GenerateSql({ params: [[DummyValue.UUID], ['faces']] })
+  @Chunked()
+  async lockProperties(ids: string[], properties: LockableProperty[]): Promise<void> {
+    if (ids.length === 0) {
+      return;
+    }
+    await this.db
+      .updateTable('asset_exif')
+      .where('assetId', 'in', ids)
+      .set((eb) => ({
+        lockedProperties: distinctLocked(eb, properties),
+      }))
+      .execute();
+  }
+
   async upsertJobStatus(...jobStatus: Insertable<AssetJobStatusTable>[]): Promise<void> {
     if (jobStatus.length === 0) {
       return;
