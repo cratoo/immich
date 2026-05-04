@@ -261,7 +261,6 @@
       return;
     }
     cursor.current = assets[nextIndex];
-    previewStackedAsset = undefined;
   };
 
   /**
