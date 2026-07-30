@@ -1,14 +1,3 @@
-import { goto } from '$app/navigation';
-import { authManager } from '$lib/managers/auth-manager.svelte';
-import { eventManager } from '$lib/managers/event-manager.svelte';
-import { serverConfigManager } from '$lib/managers/server-config-manager.svelte';
-import PasswordResetSuccessModal from '$lib/modals/PasswordResetSuccessModal.svelte';
-import UserDeleteConfirmModal from '$lib/modals/UserDeleteConfirmModal.svelte';
-import UserRestoreConfirmModal from '$lib/modals/UserRestoreConfirmModal.svelte';
-import { Route } from '$lib/route';
-import type { HeaderButtonActionItem } from '$lib/types';
-import { handleError } from '$lib/utils/handle-error';
-import { getFormatter } from '$lib/utils/i18n';
 import {
   createUserAdmin,
   deleteUserAdmin,
@@ -32,6 +21,17 @@ import {
 } from '@mdi/js';
 import { DateTime } from 'luxon';
 import type { MessageFormatter } from 'svelte-i18n';
+import { goto } from '$app/navigation';
+import { authManager } from '$lib/managers/auth-manager.svelte';
+import { eventManager } from '$lib/managers/event-manager.svelte';
+import { serverConfigManager } from '$lib/managers/server-config-manager.svelte';
+import PasswordResetSuccessModal from '$lib/modals/PasswordResetSuccessModal.svelte';
+import UserDeleteConfirmModal from '$lib/modals/UserDeleteConfirmModal.svelte';
+import UserRestoreConfirmModal from '$lib/modals/UserRestoreConfirmModal.svelte';
+import { Route } from '$lib/route';
+import type { HeaderButtonActionItem } from '$lib/types';
+import { handleError } from '$lib/utils/handle-error';
+import { getFormatter } from '$lib/utils/i18n';
 
 export const getUserAdminsActions = ($t: MessageFormatter) => {
   const Create: ActionItem = {
@@ -159,11 +159,11 @@ export const handleNavigateUserAdmin = async (user: UserAdminResponseDto) => {
 const generatePassword = (length: number = 16) => {
   let generatedPassword = '';
 
-  const characterSet = '0123456789' + 'abcdefghijklmnopqrstuvwxyz' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + ',.-{}+!#$%/()=?';
+  const characterSet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ,.-{}+!#$%/()=?';
 
   for (let i = 0; i < length; i++) {
     let randomNumber = crypto.getRandomValues(new Uint32Array(1))[0];
-    randomNumber = randomNumber / 2 ** 32;
+    randomNumber /= 2 ** 32;
     randomNumber = Math.floor(randomNumber * characterSet.length);
 
     generatedPassword += characterSet[randomNumber];

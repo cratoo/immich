@@ -1,6 +1,6 @@
-import type { Lang } from '$lib/constants';
 import { locale, t, waitLocale } from 'svelte-i18n';
 import { get, type Unsubscriber } from 'svelte/store';
+import type { Lang } from '$lib/constants';
 
 export const getFormatter = async () => {
   let unsubscribe: Unsubscriber | undefined;
@@ -13,27 +13,37 @@ export const getFormatter = async () => {
   return get(t);
 };
 
+const aliases: Record<string, string> = {
+  'zh-CN': 'zh-Hans',
+  'zh-HK': 'zh-Hant',
+  'zh-MO': 'zh-Hant',
+  'zh-SG': 'zh-Hans',
+  'zh-TW': 'zh-Hant',
+};
+
 const modules = import.meta.glob('$i18n/*.json');
 
 const fileCodes = Object.keys(modules)
   .map((path) => path.match(/\/(\w+)\.json$/)?.[1])
   .filter(Boolean) as string[];
 
-const convertBCP47 = (code: string) => code.replace('_', '-');
+export const convertBCP47 = (code: string) => code.replaceAll('_', '-');
 
 export const langCodes = fileCodes.map((code) => convertBCP47(code));
 
 // https://github.com/kaisermann/svelte-i18n/blob/780932a3e1270d521d348aac8ba03be9df309f04/src/runtime/stores/locale.ts#L11
 const getSubLocales = (locale: string) => {
-  return locale
+  return convertBCP47(locale)
     .split('-')
     .map((_, i, arr) => arr.slice(0, i + 1).join('-'))
     .reverse();
 };
 
 export const getClosestAvailableLocale = (locales: readonly string[], allLocales: readonly string[]) => {
-  const allLocalesSet = new Set(allLocales);
-  return locales.find((locale) => getSubLocales(locale).some((subLocale) => allLocalesSet.has(subLocale)));
+  const allLocalesSet = new Set(allLocales.map((locale) => convertBCP47(locale)));
+  return locales
+    .map((locale) => aliases[locale] ?? locale)
+    .find((locale) => getSubLocales(locale).some((subLocale) => allLocalesSet.has(subLocale)));
 };
 
 export const getPreferredLocale = () => getClosestAvailableLocale(navigator.languages, langCodes);
@@ -112,8 +122,11 @@ const capitalize = (string: string) =>
     .join(' ');
 
 const nonIntlNames: Record<string, string> = {
-  mfa: 'Malay (Pattani)',
   bi: 'Bislama',
+  kxm: 'Khmer Surin',
+  mfa: 'Malay (Pattani)',
+  swg: 'Schwäbisch',
+  tl: 'Tagalog',
 };
 
 const getLanguageName = (code: string) =>

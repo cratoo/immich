@@ -1,3 +1,4 @@
+/* eslint-disable unicorn/no-this-outside-of-class */
 import { createPostgres, DatabaseConnectionParams } from '@immich/sql-tools';
 import { CallHandler, ExecutionContext, Provider } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
@@ -33,6 +34,7 @@ import { DownloadRepository } from 'src/repositories/download.repository';
 import { DuplicateRepository } from 'src/repositories/duplicate.repository';
 import { EmailRepository } from 'src/repositories/email.repository';
 import { EventRepository } from 'src/repositories/event.repository';
+import { IntegrityRepository } from 'src/repositories/integrity.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LibraryRepository } from 'src/repositories/library.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
@@ -64,6 +66,7 @@ import { TelemetryRepository } from 'src/repositories/telemetry.repository';
 import { TrashRepository } from 'src/repositories/trash.repository';
 import { UserRepository } from 'src/repositories/user.repository';
 import { VersionHistoryRepository } from 'src/repositories/version-history.repository';
+import { VideoStreamRepository } from 'src/repositories/video-stream.repository';
 import { ViewRepository } from 'src/repositories/view-repository';
 import { WebsocketRepository } from 'src/repositories/websocket.repository';
 import { WorkflowRepository } from 'src/repositories/workflow.repository';
@@ -105,6 +108,7 @@ export const controllerSetup = async (controller: new (...args: any[]) => unknow
       await new Promise<void>((resolve, reject) => {
         const next: NextFunction = (error) => (error ? reject(transformException(error)) : resolve());
         const maybePromise = handler(context.getRequest(), context.getResponse(), next);
+
         Promise.resolve(maybePromise).catch((error) => reject(error));
       });
 
@@ -174,13 +178,17 @@ export const automock = <T>(
   },
 ): AutoMocked<T> => {
   const mock: Record<string, unknown> = {};
-  const strict = options?.strict ?? true;
+  const isStrict = options?.strict ?? true;
   const args = options?.args ?? [];
 
   const mocks: Mock[] = [];
 
   const instance = new Dependency(...args);
-  for (const property of Object.getOwnPropertyNames(Dependency.prototype)) {
+  const propertyNames = new Set([
+    ...Object.getOwnPropertyNames(Dependency.prototype),
+    ...Object.getOwnPropertyNames(instance),
+  ]);
+  for (const property of propertyNames) {
     if (property === 'constructor') {
       continue;
     }
@@ -191,7 +199,7 @@ export const automock = <T>(
 
       const target = instance[property as keyof T];
       if (typeof target === 'function') {
-        const mockImplementation = mockFn(label, { strict });
+        const mockImplementation = mockFn(label, { strict: isStrict });
         mock[property] = mockImplementation;
         mocks.push(mockImplementation);
         continue;
@@ -229,6 +237,7 @@ export type ServiceOverrides = {
   duplicateRepository: DuplicateRepository;
   email: EmailRepository;
   event: EventRepository;
+  integrityReport: IntegrityRepository;
   job: JobRepository;
   library: LibraryRepository;
   logger: LoggingRepository;
@@ -260,6 +269,7 @@ export type ServiceOverrides = {
   trash: TrashRepository;
   user: UserRepository;
   versionHistory: VersionHistoryRepository;
+  videoStream: VideoStreamRepository;
   view: ViewRepository;
   websocket: WebsocketRepository;
   workflow: WorkflowRepository;
@@ -310,6 +320,7 @@ export const getMocks = () => {
     email: automock(EmailRepository, { args: [loggerMock] }),
     // eslint-disable-next-line no-sparse-arrays
     event: automock(EventRepository, { args: [, , loggerMock], strict: false }),
+    integrityReport: automock(IntegrityRepository, { strict: false }),
     job: newJobRepositoryMock(),
     apiKey: automock(ApiKeyRepository),
     library: automock(LibraryRepository, { strict: false }),
@@ -324,7 +335,7 @@ export const getMocks = () => {
     oauth: automock(OAuthRepository, { args: [loggerMock] }),
     partner: automock(PartnerRepository, { strict: false }),
     person: automock(PersonRepository, { strict: false }),
-    plugin: automock(PluginRepository, { strict: true }),
+    plugin: automock(PluginRepository, { strict: true, args: [databaseMock, loggerMock] }),
     process: automock(ProcessRepository),
     search: automock(SearchRepository, { strict: false }),
     // eslint-disable-next-line no-sparse-arrays
@@ -344,6 +355,7 @@ export const getMocks = () => {
     trash: automock(TrashRepository),
     user: automock(UserRepository, { strict: false }),
     versionHistory: automock(VersionHistoryRepository),
+    videoStream: automock(VideoStreamRepository, { strict: false }),
     view: automock(ViewRepository),
     // eslint-disable-next-line no-sparse-arrays
     websocket: automock(WebsocketRepository, { args: [, loggerMock], strict: false }),
@@ -378,6 +390,7 @@ export const newTestService = <T extends BaseService>(
     overrides.duplicateRepository || (mocks.duplicateRepository as As<DuplicateRepository>),
     overrides.email || (mocks.email as As<EmailRepository>),
     overrides.event || (mocks.event as As<EventRepository>),
+    overrides.integrityReport || (mocks.integrityReport as As<IntegrityRepository>),
     overrides.job || (mocks.job as As<JobRepository>),
     overrides.library || (mocks.library as As<LibraryRepository>),
     overrides.machineLearning || (mocks.machineLearning as As<MachineLearningRepository>),
@@ -408,6 +421,7 @@ export const newTestService = <T extends BaseService>(
     overrides.trash || (mocks.trash as As<TrashRepository>),
     overrides.user || (mocks.user as As<UserRepository>),
     overrides.versionHistory || (mocks.versionHistory as As<VersionHistoryRepository>),
+    overrides.videoStream || (mocks.videoStream as As<VideoStreamRepository>),
     overrides.view || (mocks.view as As<ViewRepository>),
     overrides.websocket || (mocks.websocket as As<WebsocketRepository>),
     overrides.workflow || (mocks.workflow as As<WorkflowRepository>),
@@ -442,7 +456,7 @@ const pngFactory = newPngFactory();
 
 const templateName = 'mich';
 
-const withDatabase = (url: string, name: string) => url.replace(`/${templateName}`, `/${name}`);
+const withDatabase = (url: string, name: string) => url.replace(`/${templateName}`, () => `/${name}`);
 
 export const getKyselyDB = async (suffix?: string): Promise<Kysely<DB>> => {
   const testUrl = process.env.IMMICH_TEST_POSTGRES_URL!;
@@ -496,6 +510,7 @@ export const mockSpawn = vitest.fn((exitCode: number, stdout: string, stderr: st
         callback(exitCode);
       }
     }),
+    kill: vitest.fn(),
   } as unknown as ChildProcessWithoutNullStreams;
 });
 
@@ -568,7 +583,7 @@ export const mockFork = vitest.fn((exitCode: number, stdout: string, stderr: str
   } as unknown as ChildProcessWithoutNullStreams;
 });
 
-export async function* makeStream<T>(items: T[] = []): AsyncIterableIterator<T> {
+export async function* makeStream<T>(items: T[] = []): AsyncGenerator<T> {
   for (const item of items) {
     await Promise.resolve();
     yield item;

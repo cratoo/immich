@@ -1,9 +1,10 @@
-import { OAuthClient, OAuthUser } from '@immich/e2e-auth-server';
+import { OAuthClient, OAuthUser, generateLogoutToken } from '@immich/e2e-auth-server';
 import {
   LoginResponseDto,
   SystemConfigOAuthDto,
   getConfigDefaults,
   getMyUser,
+  getSessions,
   startOAuth,
   updateConfig,
 } from '@immich/sdk';
@@ -43,7 +44,7 @@ const loginWithOAuth = async (sub: OAuthUser | string, redirectUri?: string) => 
   });
 
   // login
-  const response1 = await redirect(url.replace(authServer.internal, authServer.external));
+  const response1 = await redirect(url.replace(authServer.internal, () => authServer.external));
   const response2 = await request(authServer.external + response1.location)
     .post('')
     .set('Cookie', response1.cookies)
@@ -88,21 +89,27 @@ describe(`/oauth`, () => {
   beforeAll(async () => {
     await utils.resetDatabase();
     admin = await utils.adminSetup();
-
-    await setupOAuth(admin.accessToken, {
-      enabled: true,
-      clientId: OAuthClient.DEFAULT,
-      clientSecret: OAuthClient.DEFAULT,
-      buttonText: 'Login with Immich',
-      storageLabelClaim: 'immich_username',
-    });
   });
 
   describe('POST /oauth/authorize', () => {
+    beforeAll(async () => {
+      await setupOAuth(admin.accessToken, {
+        enabled: true,
+        clientId: OAuthClient.DEFAULT,
+        clientSecret: OAuthClient.DEFAULT,
+        buttonText: 'Login with Immich',
+        storageLabelClaim: 'immich_username',
+      });
+    });
+
     it(`should throw an error if a redirect uri is not provided`, async () => {
       const { status, body } = await request(app).post('/oauth/authorize').send({});
       expect(status).toBe(400);
-      expect(body).toEqual(errorDto.badRequest(['[redirectUri] Invalid input: expected string, received undefined']));
+      expect(body).toEqual(
+        errorDto.validationError([
+          { path: ['redirectUri'], message: 'Invalid input: expected string, received undefined' },
+        ]),
+      );
     });
 
     it('should return a redirect uri', async () => {
@@ -118,19 +125,60 @@ describe(`/oauth`, () => {
       expect(params.get('redirect_uri')).toBe('http://127.0.0.1:2285/auth/login');
       expect(params.get('state')).toBeDefined();
     });
+
+    it('should not include the prompt parameter when not configured', async () => {
+      const { status, body } = await request(app)
+        .post('/oauth/authorize')
+        .send({ redirectUri: 'http://127.0.0.1:2285/auth/login' });
+      expect(status).toBe(201);
+
+      const params = new URL(body.url).searchParams;
+      expect(params.get('prompt')).toBeNull();
+    });
+
+    it('should include the prompt parameter when configured', async () => {
+      await setupOAuth(admin.accessToken, {
+        enabled: true,
+        clientId: OAuthClient.DEFAULT,
+        clientSecret: OAuthClient.DEFAULT,
+        prompt: 'select_account',
+      });
+
+      const { status, body } = await request(app)
+        .post('/oauth/authorize')
+        .send({ redirectUri: 'http://127.0.0.1:2285/auth/login' });
+      expect(status).toBe(201);
+
+      const params = new URL(body.url).searchParams;
+      expect(params.get('prompt')).toBe('select_account');
+    });
   });
 
   describe('POST /oauth/callback', () => {
+    beforeAll(async () => {
+      await setupOAuth(admin.accessToken, {
+        enabled: true,
+        clientId: OAuthClient.DEFAULT,
+        clientSecret: OAuthClient.DEFAULT,
+        buttonText: 'Login with Immich',
+        storageLabelClaim: 'immich_username',
+      });
+    });
+
     it(`should throw an error if a url is not provided`, async () => {
       const { status, body } = await request(app).post('/oauth/callback').send({});
       expect(status).toBe(400);
-      expect(body).toEqual(errorDto.badRequest(['[url] Invalid input: expected string, received undefined']));
+      expect(body).toEqual(
+        errorDto.validationError([{ path: ['url'], message: 'Invalid input: expected string, received undefined' }]),
+      );
     });
 
     it(`should throw an error if the url is empty`, async () => {
       const { status, body } = await request(app).post('/oauth/callback').send({ url: '' });
       expect(status).toBe(400);
-      expect(body).toEqual(errorDto.badRequest(['[url] Too small: expected string to have >=1 characters']));
+      expect(body).toEqual(
+        errorDto.validationError([{ path: ['url'], message: 'Too small: expected string to have >=1 characters' }]),
+      );
     });
 
     it(`should throw an error if the state is not provided`, async () => {
@@ -159,10 +207,9 @@ describe(`/oauth`, () => {
     it(`should throw an error if the codeVerifier doesn't match the challenge`, async () => {
       const callbackParams = await loginWithOAuth('oauth-auto-register');
       const { codeVerifier } = await loginWithOAuth('oauth-auto-register');
-      const { status, body } = await request(app)
+      const { status } = await request(app)
         .post('/oauth/callback')
         .send({ ...callbackParams, codeVerifier });
-      console.log(body);
       expect(status).toBeGreaterThanOrEqual(400);
     });
 
@@ -293,9 +340,7 @@ describe(`/oauth`, () => {
       const { status, body } = await request(app).post('/oauth/callback').send(callbackParams);
       expect(status).toBe(500);
       expect(body).toMatchObject({
-        error: 'Internal Server Error',
         message: 'Failed to finish oauth',
-        statusCode: 500,
       });
     });
 
@@ -314,7 +359,7 @@ describe(`/oauth`, () => {
         const callbackParams = await loginWithOAuth('oauth-no-auto-register');
         const { status, body } = await request(app).post('/oauth/callback').send(callbackParams);
         expect(status).toBe(400);
-        expect(body).toEqual(errorDto.badRequest('User does not exist and auto registering is disabled.'));
+        expect(body).toEqual(errorDto.badRequest('OAuth authentication failed'));
       });
 
       it('should link to an existing user by email', async () => {
@@ -330,6 +375,54 @@ describe(`/oauth`, () => {
           userId,
           userEmail: 'oauth-user3@immich.app',
         });
+      });
+    });
+  });
+
+  describe(`POST /oauth/backchannel-logout`, () => {
+    it(`should throw an error if the logout_token is not provided`, async () => {
+      const { status, body } = await request(app).post('/oauth/backchannel-logout').send({});
+      expect(status).toBe(400);
+      expect(body).toEqual(
+        errorDto.validationError([
+          { path: ['logout_token'], message: 'Invalid input: expected string, received undefined' },
+        ]),
+      );
+    });
+
+    it(`should throw an error if an invalid logout token is provided`, async () => {
+      const { status, body } = await request(app)
+        .post('/oauth/backchannel-logout')
+        .send({ logout_token: 'invalid token' });
+      expect(status).toBe(400);
+      expect(body).toEqual(errorDto.badRequest('Error backchannel logout: token validation failed'));
+    });
+
+    it(`should logout user if a valid logout token is provided`, async () => {
+      await setupOAuth(admin.accessToken, {
+        enabled: true,
+        clientId: OAuthClient.DEFAULT,
+        clientSecret: OAuthClient.DEFAULT,
+        autoRegister: true,
+        signingAlgorithm: 'RS256',
+        buttonText: 'Login with Immich',
+      });
+
+      const callbackParams = await loginWithOAuth('backchannel-logout-user');
+      const { status: callbackStatus, body: callbackBody } = await request(app)
+        .post('/oauth/callback')
+        .send(callbackParams);
+      expect(callbackStatus).toBe(201);
+
+      await expect(getSessions({ headers: asBearerAuth(callbackBody.accessToken) })).resolves.toHaveLength(1);
+
+      const logoutToken = await generateLogoutToken('http://0.0.0.0:2286', 'backchannel-logout-user');
+      const { status, body } = await request(app).post('/oauth/backchannel-logout').send({ logout_token: logoutToken });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({});
+
+      await expect(getSessions({ headers: asBearerAuth(callbackBody.accessToken) })).rejects.toMatchObject({
+        status: 401,
       });
     });
   });
@@ -412,11 +505,10 @@ describe(`/oauth`, () => {
     });
 
     it('should reject OAuth discovery over HTTP', async () => {
-      const { status, body } = await request(app)
+      const { status } = await request(app)
         .post('/oauth/authorize')
         .send({ redirectUri: 'http://127.0.0.1:2285/auth/login' });
       expect(status).toBe(500);
-      expect(body).toMatchObject({ statusCode: 500 });
     });
   });
 });

@@ -80,6 +80,7 @@ const validImages = [
   '.jxl',
   '.k25',
   '.kdc',
+  '.mpo',
   '.mrw',
   '.nef',
   '.orf',
@@ -148,7 +149,6 @@ const createDto = Object.freeze({
   fileCreatedAt: new Date('2022-06-19T23:41:36.910Z'),
   fileModifiedAt: new Date('2022-06-19T23:41:36.910Z'),
   isFavorite: false,
-  duration: '0:00:00.000000',
 }) as AssetMediaCreateDto;
 
 const assetEntity = Object.freeze({
@@ -160,11 +160,11 @@ const assetEntity = Object.freeze({
   fileCreatedAt: new Date('2022-06-19T23:41:36.910Z'),
   updatedAt: new Date('2022-06-19T23:41:36.910Z'),
   isFavorite: false,
-  duration: '0:00:00.000000',
+  duration: null,
   files: [] as AssetFile[],
   exifInfo: {
-    latitude: 49.533_547,
-    longitude: 10.703_075,
+    latitude: 49.533547,
+    longitude: 10.703075,
   },
   livePhotoVideoId: null,
 } as MapAsset);
@@ -269,6 +269,10 @@ describe(AssetMediaService.name, () => {
         'random-uuid.jpg',
       );
     });
+
+    it('should accept filenames with just an extension', () => {
+      expect(sut.getUploadFilename(uploadFile.filename(UploadFieldName.ASSET_DATA, '.jpg'))).toEqual('random-uuid.jpg');
+    });
   });
 
   describe('getUploadFolder', () => {
@@ -339,7 +343,6 @@ describe(AssetMediaService.name, () => {
       });
 
       expect(mocks.asset.create).toHaveBeenCalled();
-      expect(mocks.user.updateUsage).toHaveBeenCalledWith(authStub.user1.user.id, file.size);
       expect(mocks.storage.utimes).toHaveBeenCalledWith(
         file.originalPath,
         expect.any(Date),

@@ -14,10 +14,10 @@ function validConfig() {
     notifications: { smtp: { from: string; transport: { host: string } } };
     server: { externalDomain: string };
   };
-  config.oauth.mobileRedirectUri = config.oauth.mobileRedirectUri || 'https://example.com';
-  config.server.externalDomain = config.server.externalDomain || 'https://example.com';
-  config.notifications.smtp.from = config.notifications.smtp.from || 'noreply@example.com';
-  config.notifications.smtp.transport.host = config.notifications.smtp.transport.host || 'localhost';
+  config.oauth.mobileRedirectUri ||= 'https://example.com';
+  config.server.externalDomain ||= 'https://example.com';
+  config.notifications.smtp.from ||= 'noreply@example.com';
+  config.notifications.smtp.transport.host ||= 'localhost';
   return config;
 }
 
@@ -67,8 +67,11 @@ describe(SystemConfigController.name, () => {
         const { status, body } = await request(ctx.getHttpServer()).put('/system-config').send(config);
         expect(status).toBe(400);
         expect(body).toEqual(
-          errorDto.badRequest([
-            '[nightlyTasks.startTime] Invalid input: expected string in HH:mm format, received string',
+          errorDto.validationError([
+            {
+              path: ['nightlyTasks', 'startTime'],
+              message: 'Invalid input: expected string in HH:MM format, received string',
+            },
           ]),
         );
       });
@@ -86,7 +89,9 @@ describe(SystemConfigController.name, () => {
         const { status, body } = await request(ctx.getHttpServer()).put('/system-config').send(config);
         expect(status).toBe(400);
         expect(body).toEqual(
-          errorDto.badRequest(['[nightlyTasks.databaseCleanup] Invalid input: expected boolean, received string']),
+          errorDto.validationError([
+            { path: ['nightlyTasks', 'databaseCleanup'], message: 'Invalid input: expected boolean, received string' },
+          ]),
         );
       });
     });
@@ -116,7 +121,12 @@ describe(SystemConfigController.name, () => {
         const { status, body } = await request(ctx.getHttpServer()).put('/system-config').send(config);
         expect(status).toBe(400);
         expect(body).toEqual(
-          errorDto.badRequest(['[image.thumbnail.progressive] Invalid input: expected boolean, received string']),
+          errorDto.validationError([
+            {
+              path: ['image', 'thumbnail', 'progressive'],
+              message: 'Invalid input: expected boolean, received string',
+            },
+          ]),
         );
       });
     });

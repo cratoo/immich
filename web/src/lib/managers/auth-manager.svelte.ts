@@ -1,9 +1,3 @@
-import { browser } from '$app/environment';
-import { goto } from '$app/navigation';
-import { page } from '$app/state';
-import { eventManager } from '$lib/managers/event-manager.svelte';
-import { Route } from '$lib/route';
-import { isSharedLinkRoute } from '$lib/utils/navigation';
 import {
   getAboutInfo,
   getMyPreferences,
@@ -12,6 +6,12 @@ import {
   type UserAdminResponseDto,
   type UserPreferencesResponseDto,
 } from '@immich/sdk';
+import { browser } from '$app/environment';
+import { goto } from '$app/navigation';
+import { page } from '$app/state';
+import { eventManager } from '$lib/managers/event-manager.svelte';
+import { Route } from '$lib/route';
+import { isSharedLinkRoute } from '$lib/utils/navigation';
 
 class AuthManager {
   isPurchased = $state(false);
@@ -109,7 +109,7 @@ class AuthManager {
 
       await goto(redirectUri);
     } else {
-      globalThis.location.href = redirectUri;
+      location.assign(redirectUri);
     }
   }
 
@@ -124,7 +124,7 @@ class AuthManager {
     }
 
     for (const cookie of document.cookie.split('; ')) {
-      const [name] = cookie.split('=');
+      const [name] = cookie.split('=', 1);
       if (name === 'immich_is_authenticated') {
         return true;
       }

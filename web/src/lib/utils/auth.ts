@@ -1,9 +1,9 @@
-import { authManager } from '$lib/managers/auth-manager.svelte';
-import { Route } from '$lib/route';
-import { userInteraction } from '$lib/stores/user.svelte';
 import { getStorage } from '@immich/sdk';
 import { redirect } from '@sveltejs/kit';
 import { DateTime } from 'luxon';
+import { authManager } from '$lib/managers/auth-manager.svelte';
+import { Route } from '$lib/route';
+import { userInteraction } from '$lib/stores/user.svelte';
 
 export interface AuthOptions {
   admin?: true;
@@ -28,10 +28,12 @@ export const authenticate = async (url: URL, options?: AuthOptions) => {
 };
 
 export const requestServerInfo = async () => {
-  if (authManager.authenticated) {
-    const data = await getStorage();
-    userInteraction.serverInfo = data;
+  if (!authManager.authenticated) {
+    return;
   }
+
+  const data = await getStorage();
+  userInteraction.serverInfo = data;
 };
 
 export const getAccountAge = (): number => {

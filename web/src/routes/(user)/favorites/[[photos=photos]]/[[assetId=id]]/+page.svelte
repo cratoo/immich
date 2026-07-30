@@ -1,7 +1,7 @@
 <script lang="ts">
-  import UserPageLayout from '$lib/components/layouts/user-page-layout.svelte';
-  import ButtonContextMenu from '$lib/components/shared-components/context-menu/button-context-menu.svelte';
-  import EmptyPlaceholder from '$lib/components/shared-components/empty-placeholder.svelte';
+  import UserPageLayout from '$lib/components/layouts/UserPageLayout.svelte';
+  import ButtonContextMenu from '$lib/components/shared-components/context-menu/ButtonContextMenu.svelte';
+  import EmptyPlaceholder from '$lib/components/shared-components/EmptyPlaceholder.svelte';
   import ArchiveAction from '$lib/components/timeline/actions/ArchiveAction.svelte';
   import ChangeDate from '$lib/components/timeline/actions/ChangeDateAction.svelte';
   import ChangeDescription from '$lib/components/timeline/actions/ChangeDescriptionAction.svelte';
@@ -34,10 +34,12 @@
   const options = { isFavorite: true, withStacked: true };
 
   const handleEscape = () => {
-    if (assetMultiSelectManager.selectionActive) {
-      assetMultiSelectManager.clear();
+    if (!assetMultiSelectManager.selectionActive) {
       return;
     }
+
+    assetMultiSelectManager.clear();
+    return;
   };
 
   const handleSetVisibility = (assetIds: string[]) => {
@@ -56,7 +58,7 @@
     onEscape={handleEscape}
   >
     {#snippet empty()}
-      <EmptyPlaceholder text={$t('no_favorites_message')} class="mt-10 mx-auto" />
+      <EmptyPlaceholder text={$t('no_favorites_message')} class="mx-auto mt-10" />
     {/snippet}
   </Timeline>
 </UserPageLayout>

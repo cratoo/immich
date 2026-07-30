@@ -187,8 +187,10 @@ describe(AssetService.name, () => {
       await sut.update(authStub.admin, asset.id, { description: 'Test description' });
 
       expect(mocks.asset.upsertExif).toHaveBeenCalledWith(
-        { assetId: asset.id, description: 'Test description', lockedProperties: ['description'] },
-        { lockedPropertiesBehavior: 'append' },
+        expect.objectContaining({
+          exif: { assetId: asset.id, description: 'Test description', lockedProperties: ['description'] },
+          lockedPropertiesBehavior: 'append',
+        }),
       );
     });
 
@@ -201,12 +203,14 @@ describe(AssetService.name, () => {
       await sut.update(authStub.admin, asset.id, { rating: 3 });
 
       expect(mocks.asset.upsertExif).toHaveBeenCalledWith(
-        {
-          assetId: asset.id,
-          rating: 3,
-          lockedProperties: ['rating'],
-        },
-        { lockedPropertiesBehavior: 'append' },
+        expect.objectContaining({
+          exif: {
+            assetId: asset.id,
+            rating: 3,
+            lockedProperties: ['rating'],
+          },
+          lockedPropertiesBehavior: 'append',
+        }),
       );
     });
 
@@ -562,6 +566,34 @@ describe(AssetService.name, () => {
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
 
       expect(mocks.stack.delete).toHaveBeenCalledWith(asset.stackId);
+    });
+
+    it('should delete the stack when a non-primary asset is deleted and only the primary would remain', async () => {
+      const asset = AssetFactory.from().build();
+      const deletionAsset = {
+        ...getForAssetDeletion(asset),
+        stack: { id: newUuid(), primaryAssetId: newUuid(), assets: [{ id: asset.id }] },
+      };
+      mocks.stack.delete.mockResolvedValue();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(deletionAsset);
+
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+
+      expect(mocks.stack.delete).toHaveBeenCalledWith(deletionAsset.stack.id);
+    });
+
+    it('should keep the stack when a non-primary asset is deleted and the primary plus another asset remain', async () => {
+      const asset = AssetFactory.from().build();
+      const deletionAsset = {
+        ...getForAssetDeletion(asset),
+        stack: { id: newUuid(), primaryAssetId: newUuid(), assets: [{ id: asset.id }, { id: newUuid() }] },
+      };
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(deletionAsset);
+
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+
+      expect(mocks.stack.delete).not.toHaveBeenCalled();
+      expect(mocks.stack.update).not.toHaveBeenCalled();
     });
 
     it('should delete a live photo', async () => {

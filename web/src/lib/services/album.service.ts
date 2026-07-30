@@ -1,3 +1,23 @@
+import {
+  addAssetsToAlbum as addToAlbum,
+  addAssetsToAlbums as addToAlbums,
+  addUsersToAlbum,
+  AlbumUserRole,
+  BulkIdErrorReason,
+  deleteAlbum,
+  removeUserFromAlbum,
+  updateAlbumInfo,
+  updateAlbumUser,
+  type AlbumResponseDto,
+  type AlbumsAddAssetsResponseDto,
+  type AssetResponseDto,
+  type BulkIdResponseDto,
+  type UpdateAlbumDto,
+  type UserResponseDto,
+} from '@immich/sdk';
+import { modalManager, toastManager, type ActionItem } from '@immich/ui';
+import { mdiImageOutline, mdiLink, mdiPlus, mdiPlusBoxOutline, mdiShareVariantOutline, mdiUpload } from '@mdi/js';
+import { type MessageFormatter } from 'svelte-i18n';
 import { goto } from '$app/navigation';
 import { authManager } from '$lib/managers/auth-manager.svelte';
 import { eventManager } from '$lib/managers/event-manager.svelte';
@@ -11,25 +31,6 @@ import { downloadArchive } from '$lib/utils/asset-utils';
 import { openFileUploadDialog } from '$lib/utils/file-uploader';
 import { handleError } from '$lib/utils/handle-error';
 import { getFormatter } from '$lib/utils/i18n';
-import {
-  addAssetsToAlbum as addToAlbum,
-  addAssetsToAlbums as addToAlbums,
-  addUsersToAlbum,
-  AlbumUserRole,
-  BulkIdErrorReason,
-  deleteAlbum,
-  removeUserFromAlbum,
-  updateAlbumInfo,
-  updateAlbumUser,
-  type AlbumResponseDto,
-  type AlbumsAddAssetsResponseDto,
-  type BulkIdResponseDto,
-  type UpdateAlbumDto,
-  type UserResponseDto,
-} from '@immich/sdk';
-import { modalManager, toastManager, type ActionItem } from '@immich/ui';
-import { mdiLink, mdiPlus, mdiPlusBoxOutline, mdiShareVariantOutline, mdiUpload } from '@mdi/js';
-import { type MessageFormatter } from 'svelte-i18n';
 
 export const getAlbumsActions = ($t: MessageFormatter) => {
   const Create: ActionItem = {
@@ -42,7 +43,7 @@ export const getAlbumsActions = ($t: MessageFormatter) => {
 };
 
 export const getAlbumActions = ($t: MessageFormatter, album: AlbumResponseDto) => {
-  const isOwned = authManager.user.id === album.ownerId;
+  const isOwned = album.albumUsers[0].user.id === authManager.user.id;
 
   const Share: ActionItem = {
     title: $t('share'),
@@ -66,6 +67,16 @@ export const getAlbumActions = ($t: MessageFormatter, album: AlbumResponseDto) =
   };
 
   return { Share, AddUsers, CreateSharedLink };
+};
+
+export const getAlbumAssetActions = ($t: MessageFormatter, album: AlbumResponseDto, asset: AssetResponseDto) => {
+  const SetCover: ActionItem = {
+    title: $t('set_as_album_cover'),
+    icon: mdiImageOutline,
+    onAction: () => handleUpdateThumbnail(album, asset.id),
+  };
+
+  return { SetCover };
 };
 
 export const getAlbumAssetsActions = ($t: MessageFormatter, album: AlbumResponseDto, assets: TimelineAsset[]) => {
@@ -123,10 +134,13 @@ const notifyAddToAlbum = ($t: MessageFormatter, albumId: string, assetIds: strin
   const successCount = results.filter(({ success }) => success).length;
   const duplicateCount = results.filter(({ error }) => error === 'duplicate').length;
   let description = $t('assets_cannot_be_added_to_album_count', { values: { count: assetIds.length } });
-  if (successCount > 0) {
-    description = $t('assets_added_to_album_count', { values: { count: successCount } });
-  } else if (duplicateCount > 0) {
+
+  if (duplicateCount === assetIds.length) {
     description = $t('assets_were_part_of_album_count', { values: { count: duplicateCount } });
+  } else if (successCount === assetIds.length) {
+    description = $t('assets_added_to_album_count', { values: { count: successCount } });
+  } else if (successCount > 0) {
+    description = $t('assets_added_to_album_partial_count', { values: { successCount, totalCount: assetIds.length } });
   }
 
   toastManager.primary(
@@ -203,6 +217,23 @@ export const handleRemoveUserFromAlbum = async (album: AlbumResponseDto, albumUs
     eventManager.emit('AlbumUserDelete', { albumId: album.id, userId: albumUser.id });
   } catch (error) {
     handleError(error, $t('errors.unable_to_remove_album_users'));
+  }
+};
+
+const handleUpdateThumbnail = async (album: AlbumResponseDto, assetId: string) => {
+  const $t = await getFormatter();
+
+  try {
+    const response = await updateAlbumInfo({
+      id: album.id,
+      updateAlbumDto: {
+        albumThumbnailAssetId: assetId,
+      },
+    });
+    eventManager.emit('AlbumUpdate', response);
+    toastManager.primary($t('album_cover_updated'));
+  } catch (error) {
+    handleError(error, $t('errors.unable_to_update_album_cover'));
   }
 };
 
