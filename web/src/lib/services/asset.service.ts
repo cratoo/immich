@@ -24,6 +24,7 @@ import {
   AssetVisibility,
   bulkTagAssets,
   getAssetInfo,
+  getStack,
   runAssetJobs,
   updateAsset,
   updateAssets,
@@ -66,6 +67,21 @@ import { t, type MessageFormatter } from 'svelte-i18n';
 import { get } from 'svelte/store';
 import { goto } from '$app/navigation';
 
+const expandStackAssetIds = async (assets: TimelineAsset[]): Promise<string[]> => {
+  const results: string[] = [];
+  for (const asset of assets) {
+    if (asset.stack) {
+      const stack = await getStack({ id: asset.stack.id });
+      for (const member of stack.assets) {
+        results.push(member.id);
+      }
+    } else {
+      results.push(asset.id);
+    }
+  }
+  return results;
+};
+
 export const getAssetBulkActions = ($t: MessageFormatter, album?: AlbumResponseDto) => {
   const assetIds = assetMultiSelectManager.assets.map((asset) => asset.id);
   const ownedAssets = assetMultiSelectManager.ownedAssets;
@@ -80,7 +96,10 @@ export const getAssetBulkActions = ($t: MessageFormatter, album?: AlbumResponseD
     title: $t('add_to_album'),
     icon: mdiPlus,
     shortcuts: [{ key: 'l' }],
-    onAction: () => modalManager.show(AssetAddToAlbumModal, { assetIds }),
+    onAction: async () => {
+      const expandedIds = await expandStackAssetIds(assetMultiSelectManager.assets);
+      return modalManager.show(AssetAddToAlbumModal, { assetIds: expandedIds });
+    },
   };
 
   const Archive: ActionItem = {
@@ -107,7 +126,10 @@ export const getAssetBulkActions = ($t: MessageFormatter, album?: AlbumResponseD
     icon: mdiImageRemoveOutline,
     shortcuts: [{ key: 'l', shift: true }],
     $if: () => !!album && (isAlbumOwner || assetMultiSelectManager.isAllUserOwned),
-    onAction: () => handleBulkRemoveAssetsFromAlbum(assetIds, album!),
+    onAction: async () => {
+      const expandedIds = await expandStackAssetIds(assetMultiSelectManager.assets);
+      return handleBulkRemoveAssetsFromAlbum(expandedIds, album!);
+    },
   };
 
   const Tag: ActionItem = {
