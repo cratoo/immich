@@ -70,16 +70,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Merge upstream release tag
+      - name: Rebase onto upstream release tag
         run: |
           git remote add upstream https://github.com/immich-app/immich.git
           git fetch upstream ${{ needs.check.outputs.version }} --no-tags
-          git merge FETCH_HEAD \
-            --no-edit \
-            -m "chore: merge upstream ${{ needs.check.outputs.version }}"
+          git rebase FETCH_HEAD
 
-      - name: Push merged branch
-        run: git push origin extended
+      - name: Push rebased branch
+        run: git push --force-with-lease origin extended
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
