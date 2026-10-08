@@ -276,13 +276,7 @@ export class LibraryService extends BaseService {
       ),
     );
 
-    const newAssetIds: string[] = [];
-
-    for (let i = 0; i < assetImports.length; i += 5000) {
-      // Chunk the imports to avoid the postgres limit of max parameters at once
-      const chunk = assetImports.slice(i, i + 5000);
-      await this.assetRepository.createAll(chunk).then((assets) => newAssetIds.push(...assets.map((asset) => asset.id)));
-    }
+    const assetIds = await this.assetRepository.createAll(assetImports);
 
     const progressMessage =
       job.progressCounter && job.totalAssets
@@ -290,16 +284,16 @@ export class LibraryService extends BaseService {
         : `(${job.progressCounter} done so far)`;
 
     this.logger.log(
-      `Imported ${newAssetIds.length} new, ${migratedPaths.size} migrated ${progressMessage} file(s) into library ${job.libraryId}`,
+      `Imported ${assetIds.length} new, ${migratedPaths.size} migrated ${progressMessage} file(s) into library ${job.libraryId}`,
     );
 
     await Promise.all(
-      newAssetIds.map((assetId) =>
+      assetIds.map((assetId) =>
         this.eventRepository.emit('AssetCreate', { asset: { id: assetId, ownerId: library.ownerId } }),
       ),
     );
 
-    await this.queuePostSyncJobs(newAssetIds);
+    await this.queuePostSyncJobs(assetIds);
 
     return JobStatus.Success;
   }
