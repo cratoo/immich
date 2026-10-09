@@ -475,9 +475,9 @@ export class LibraryService extends BaseService {
       checksumAlgorithm: ChecksumAlgorithm.sha1Path,
       originalPath: assetPath,
 
-      fileCreatedAt: fileStat.mtime,
-      fileModifiedAt: fileStat.mtime,
-      localDateTime: fileStat.mtime,
+      fileCreatedAt: stat.mtime,
+      fileModifiedAt: stat.mtime,
+      localDateTime: stat.mtime,
       type: mimeTypes.isVideo(assetPath) ? AssetType.Video : AssetType.Image,
       originalFileName: parse(assetPath).base,
       isExternal: true,
